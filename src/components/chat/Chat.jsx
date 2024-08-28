@@ -1,14 +1,89 @@
 import { useEffect, useRef, useState } from "react"
 import "./chat.css"
 import EmojiPicker from "emoji-picker-react"
+import { arrayUnion, doc, getDoc, onSnapshot, updateDoc } from "firebase/firestore"
+import { db } from "../../lib/firebase"
+import useChatStore from "../../lib/chatStore"
+import useUserStore from "../../lib/userStore"
+import upload from "../../lib/upload"
 
 const Chat = () => {
+
+  const { currentUser } = useUserStore()
+  const { chatId, receiver, isCurrentUserBlocked, isReceiverBlocked } = useChatStore()
   const [open, setOpen] = useState(false)
   const [text, setText] = useState("")
+  const [chat, setChat] = useState(null)
+  const [image, setImage] = useState({
+    file: null,
+    url: ""
+  })
 
+  const handleImage = e => {
+    if (e.target.files[0]) {
+        setImage({
+            file: e.target.files[0],
+            url: URL.createObjectURL(e.target.files[0])
+        })
+    }
+  }
   const handleEmoji = e => {
     setText(prev => prev + e.emoji)
     setOpen(false)
+  }
+
+  const handleSend = async () => {
+    if (text === "") return;
+
+    let imageUrl = null
+    
+    try {
+      if (image.file) {
+        imageUrl = await upload(image.file)
+      }
+
+      await updateDoc(doc(db, "chats", chatId), {
+        messages: arrayUnion({
+          chatId,
+          senderId: currentUser.id,
+          text,
+          ...(imageUrl && { image: imageUrl}),
+          createdAt: new Date()
+        })
+      })
+
+      const userIds = [currentUser.id, receiver.id]
+
+      userIds.forEach(async (userId) => {
+        
+        const userChatsRef = doc(db, "userchats", userId)
+        const userChatsSnap = await getDoc(userChatsRef)
+  
+        if (userChatsSnap.exists()) {
+          const userChatsData = userChatsSnap.data()
+  
+          const chatIndex = userChatsData.chats.findIndex((chat) => chat.chatId === chatId)
+  
+          userChatsData.chats[chatIndex].lastMessage = text
+          userChatsData.chats[chatIndex].updatedAt = Date.now()
+          userChatsData.chats[chatIndex].isSeen = userId === currentUser.id ? true : false
+  
+          await updateDoc(userChatsRef, {
+            chats: userChatsData.chats
+          })
+        }
+        
+      })
+
+    } catch (error) {
+      console.log(error)
+    }
+
+    setText("")
+    setImage({
+      file: null,
+      url: ""
+    })
   }
 
   const endRef = useRef(null)
@@ -17,15 +92,25 @@ const Chat = () => {
     endRef.current?.scrollIntoView({ behavior: "smooth"})
   }, [])
 
+  useEffect(() => {
+    const unSub = onSnapshot(doc(db, "chats", chatId), (response) => {
+      setChat(response.data())
+    })
+
+    return () => {
+      unSub()
+    }
+  }, [chatId])
+
   return (
     <div className='chat'>
 
       <div className="top">
         <div className="user">
-          <img src="./avatar.png" alt="" />
+          <img src={receiver?.avatar || "./avatar.png"} alt="" />
           <div className="texts">
-            <span>Jane Doe</span>
-            <p>Last seen</p>
+            <span>{isCurrentUserBlocked? "Unknown User" : receiver?.username}</span>
+            <p>Last seen just now</p>
           </div>
         </div>
         <div className="icons">
@@ -36,61 +121,44 @@ const Chat = () => {
       </div>
 
       <div className="center">
-        <div className="message">
-          <img src="./avatar.png" alt="" />
+        {
+          chat?.messages.map((message) => {
+            return (
+              <div className={message.senderId === currentUser.id ? "message own" : "message"} key={message.createdAt}>
+                <div className="texts">
+                  {message.image && <img src={message.image} alt="" />}
+                  <p>{message.text}</p>
+                  {/* <span>1 min ago</span> */}
+                </div>
+              </div>
+            )
+          })
+        }
+        {image.url && <div className="message own">
           <div className="texts">
-            <p>Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing </p>
-            <span>1 min ago</span>
+            <img src={image.url} alt="" />
           </div>
-        </div>
-
-        <div className="message own">
-          <div className="texts">
-            <p>Hello</p>
-            <span>1 min ago</span>
-          </div>
-        </div>
-
-        <div className="message">
-          <img src="./avatar.png" alt="" />
-          <div className="texts">
-            <p>Hi</p>
-            <span>1 min ago</span>
-          </div>
-        </div>
-
-        <div className="message own">
-          <div className="texts">
-            <img src="https://iili.io/fwR2zg.jpg" alt="" />
-            <p>Hello</p>
-            <span>1 min ago</span>
-          </div>
-        </div>
-
-        <div className="message">
-          <img src="./avatar.png" alt="" />
-          <div className="texts">
-            <p>Hi</p>
-            <span>1 min ago</span>
-          </div>
-        </div>
+        </div>}
         <div ref={endRef}></div>
       </div>
 
       <div className="bottom">
         <div className="icons">
-          <img src="./img.png" alt="" />
+          <label htmlFor="file">
+            <img src="./img.png" alt="" />
+          </label>
+          <input type="file" id="file" style={{display: "none"}} onChange={handleImage} />
           <img src="./camera.png" alt="" />
           <img src="./mic.png" alt="" />
         </div>
-        <input type="text" placeholder="Type a message..." value={text} onChange={e => setText(e.target.value)} />
+        <input type="text" placeholder={(isCurrentUserBlocked || isReceiverBlocked) ? "You cannot send a message" : "Type a message..."} value={text} onChange={e => setText(e.target.value)} disabled={isCurrentUserBlocked || isReceiverBlocked} />
         <div className="emoji">
           <img src="./emoji.png" alt="" onClick={() => setOpen(prev => !prev)} />
           <div className="picker">
             <EmojiPicker open={open} onEmojiClick={handleEmoji} />
           </div>
         </div>
-        <button className="sendButton">Send</button>
+        <button className="sendButton" onClick={handleSend} disabled={isCurrentUserBlocked || isReceiverBlocked} >Send</button>
       </div>
 
     </div>

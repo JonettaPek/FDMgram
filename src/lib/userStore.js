@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
-export const useUserStore = create((set) => (
+const useUserStore = create((set) => (
     {
         currentUser: null,
         isLoading: true,
@@ -25,3 +25,5 @@ export const useUserStore = create((set) => (
         },
     }
 ))
+
+export default useUserStore

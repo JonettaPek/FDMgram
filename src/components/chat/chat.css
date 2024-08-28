@@ -63,6 +63,7 @@
         gap: 20px;
 
         .message {
+            width: max-content;
             max-width: 70%;
             display: flex;
             gap: 20px;
@@ -144,6 +145,10 @@
             padding: 20px;
             border-radius: 10px;
             font-size: 16px;
+
+            &:disabled {
+                cursor: not-allowed;
+            }
         }
 
         .emoji {
@@ -163,6 +168,11 @@
             border-radius: 5px;
             border: none;
             cursor: pointer;
+
+            &:disabled {
+                background-color: #5182feb4;
+                cursor: not-allowed;
+            }
         }
     }
 }
